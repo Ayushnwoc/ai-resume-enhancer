@@ -1,4 +1,6 @@
 import type { LLMProvider, LLMResponse, ModificationChunk, MatchingScore } from '@/types';
+import { getAIProvider } from '@/lib/ai-providers';
+import type { IAIProvider } from '@/lib/ai-providers';
 
 export interface LLMConfig {
   provider: LLMProvider;
@@ -14,44 +16,38 @@ export interface ChunkEnhancementResult {
 }
 
 /**
- * Enhanced resume using chunk-based approach
- * AI returns only the modifications needed, we apply them to the original
- * File is sent directly to AI for analysis
+ * Enhanced resume using chunk-based approach.
+ * Uses multi-provider system (Open/Closed): pass config to use a built-in provider,
+ * or pass an optional IAIProvider to use a custom provider directly.
  */
 export async function enhanceResumeChunks(
   file: File,
   base64File: string,
   mimeType: string,
   jobDescription: string,
-  config: LLMConfig
+  config: LLMConfig,
+  aiProvider?: IAIProvider
 ): Promise<ChunkEnhancementResult> {
-  // Get both score and modifications from AI in a single call
-  // Send file directly to AI
   const prompt = createChunkEnhancementPrompt(jobDescription);
-  
-  let llmResponse: LLMResponse;
-  switch (config.provider) {
-    case 'openai':
-      llmResponse = await enhanceWithOpenAIChunks(file, base64File, mimeType, prompt, config);
-      break;
-    case 'anthropic':
-      llmResponse = await enhanceWithAnthropicChunks(file, base64File, mimeType, prompt, config);
-      break;
-    case 'gemini':
-      llmResponse = await enhanceWithGeminiChunks(file, base64File, mimeType, prompt, config);
-      break;
-    case 'grok':
-      llmResponse = await enhanceWithGrokChunks(file, base64File, mimeType, prompt, config);
-      break;
-    default:
-      throw new Error(`Unsupported provider: ${config.provider}`);
-  }
+  const provider =
+    aiProvider ??
+    getAIProvider(config.provider, {
+      apiKey: config.apiKey,
+      model: config.model,
+    });
 
-  // Parse both score and suggestions from AI response
+  const llmResponse = await provider.enhance({
+    file,
+    base64File,
+    mimeType,
+    prompt,
+    model: config.model,
+  });
+
   const { modifications, score } = parseAIResponse(llmResponse.content);
 
   return {
-    enhancedText: '', // Not needed since we're not modifying text
+    enhancedText: '',
     modifications,
     score,
     tokens: llmResponse.tokens,
@@ -61,338 +57,66 @@ export async function enhanceResumeChunks(
 function createChunkEnhancementPrompt(
   jobDescription: string
 ): string {
-  return `You are a professional resume enhancement expert. Analyze the resume PDF file (which will be provided as an attachment) against the job description and provide a comprehensive analysis.
+  return `You are an industry-level ATS (Applicant Tracking System) resume analyst. Your role is to evaluate the attached resume PDF exactly as an enterprise ATS would: keyword matching, skill alignment, experience relevance, and fit for the specific job. Your goal is to give ALL possible suggestions that will make this resume perfect for the job description and ensure it will pass ATS screening. Be thorough: identify every gap, missing keyword, irrelevant item, and improvement so the candidate can act on them and maximize their chance of passing ATS. You must give targeted suggestions that clearly state what to ADD (and why it matters for this job) and what to REMOVE or de-emphasize (and why it does not fit or is irrelevant to this job description).
 
 CRITICAL JSON FORMAT REQUIREMENTS:
-- You MUST return ONLY valid JSON
-- No text before or after the JSON
-- No markdown code blocks
-- No trailing commas
-- All strings must be properly escaped
-- All numbers must be valid numbers (0-100)
-- The JSON must be complete and well-formed
+- You MUST return ONLY valid JSON. No text before or after the JSON, no markdown code blocks, no trailing commas.
+- All strings must be properly escaped (use \\" for quotes inside strings). All numbers 0-100.
+- Every suggestion MUST have "type" equal to either "add" or "remove".
 
-YOUR TASK:
-1. Read and analyze the resume PDF file attached
-2. Calculate a matching score (0-100) with detailed breakdown:
-   - keywordMatching (0-100): How well the resume matches keywords from the job description
-   - skillAlignment (0-100): How well the skills match the job requirements
-   - experienceRelevance (0-100): How relevant the experience is to the job
-   - overallFit (0-100): Overall assessment of fit
-   - total (0-100): Weighted total score (calculate as: keywordMatching*0.4 + skillAlignment*0.3 + experienceRelevance*0.2 + overallFit*0.1)
-   - explanation: A brief explanation of the score (keep it concise, escape quotes properly)
+EVALUATION (ATS-STYLE):
+1. keywordMatching (0-100): Presence and prominence of job-description keywords and phrases (titles, tools, methodologies, certifications). Missing or weak keyword usage hurts ATS ranking.
+2. skillAlignment (0-100): How well listed skills map to required and preferred skills in the job description. Irrelevant or outdated skills dilute the resume.
+3. experienceRelevance (0-100): Relevance of roles, responsibilities, and achievements to the target role. Generic or off-target experience reduces fit.
+4. overallFit (0-100): Holistic match to role level, industry, and responsibilities.
+5. total (0-100): Weighted score: keywordMatching*0.4 + skillAlignment*0.3 + experienceRelevance*0.2 + overallFit*0.1
+6. explanation: One or two sentences summarizing why the resume scores this way and what would move the needle most (escape quotes).
 
-3. Provide specific, actionable suggestions for improving the resume. Each suggestion must have:
-   - section: The resume section name (e.g., "Experience", "Skills", "Summary")
-   - suggestion: A specific action item - what to add or change (escape quotes properly)
-   - reason: Why this helps match the job description (escape quotes properly)
+SUGGESTIONS (ADD vs REMOVE):
+- For each suggestion you MUST set "type" to "add" or "remove".
+- type "add": Something the candidate should add to the resume. "suggestion" = the exact or paraphrased content to add (or a clear instruction, e.g. "Add a bullet: Led migration of legacy APIs to microservices"). "reason" = WHY adding this helps for THIS job (cite job description: e.g. "Job requires microservices experience; this makes the match explicit for ATS and recruiters.").
+- type "remove": Something that should be removed, shortened, or de-emphasized. "suggestion" = the specific phrase, bullet, or item to remove or reduce (quote or paraphrase from the resume). "reason" = WHY it should be removed or does not make sense for THIS job (e.g. "Job does not mention X; this adds noise and dilutes focus on Y which is required." or "Outdated technology not in JD; reduces relevance.").
 
-EXACT JSON FORMAT (copy this structure exactly, replace values):
+Cover every relevant section (Summary, Experience, Skills, Education, Certifications, etc.). Give ALL suggestions that will make the resume pass ATS and fit the job—do not hold back. Include as many actionable items as needed (typically 6–15 or more if the resume has many gaps). Use a strong mix of "add" and "remove". Be specific and cite the job description in every reason. The aim is a resume that would pass automated screening and impress recruiters.
+
+EXACT JSON FORMAT (replace values, keep structure; include both add and remove examples):
 {
   "score": {
-    "total": 75,
+    "total": 72,
     "breakdown": {
-      "keywordMatching": 80,
+      "keywordMatching": 75,
       "skillAlignment": 70,
-      "experienceRelevance": 75,
+      "experienceRelevance": 72,
       "overallFit": 70
     },
-    "explanation": "Brief explanation of the matching score"
+    "explanation": "Solid experience but several required keywords are missing; a few bullets are off-target for this role."
   },
   "suggestions": [
     {
+      "type": "add",
+      "section": "Skills",
+      "suggestion": "Add Kubernetes and Terraform to the technical skills list",
+      "reason": "Job description explicitly requires experience with container orchestration and IaC; adding these improves ATS keyword match and recruiter scan."
+    },
+    {
+      "type": "remove",
       "section": "Experience",
-      "suggestion": "Add a bullet point highlighting experience with React and TypeScript",
-      "reason": "The job description emphasizes React and TypeScript skills"
+      "suggestion": "Remove or shorten the bullet about maintaining legacy VB6 applications",
+      "reason": "Role focuses on cloud-native and modern stack; legacy VB6 is not mentioned in the JD and can make the profile look less aligned. Prioritize cloud and API work instead."
+    },
+    {
+      "type": "add",
+      "section": "Experience",
+      "suggestion": "Add a bullet under your current role: Designed and deployed REST APIs serving 1M+ requests/day",
+      "reason": "Job asks for high-scale API design; this quantifies relevant experience and matches required keywords."
     }
   ]
 }
 
-Job Description:
+JOB DESCRIPTION:
 ${jobDescription}
 
-REMEMBER: Return ONLY the JSON object above. Validate your JSON before returning. Ensure all quotes are escaped, no trailing commas, and the structure matches exactly.`;
-}
-
-async function enhanceWithOpenAIChunks(
-  file: File,
-  base64File: string,
-  mimeType: string,
-  prompt: string,
-  config: LLMConfig
-): Promise<LLMResponse> {
-  const { default: OpenAI } = await import('openai');
-  const openai = new OpenAI({
-    apiKey: config.apiKey,
-  });
-
-  // Use gpt-4o or gpt-4-turbo for PDF support, fallback to gpt-4o-mini
-  const model = config.model || 'gpt-4o';
-  const isVisionModel = model.includes('gpt-4o') || model.includes('gpt-4-turbo') || model.includes('vision');
-
-  try {
-    let userContent: any;
-    
-    if (isVisionModel && mimeType.includes('pdf')) {
-      // For vision models, send PDF as image_url (OpenAI can process PDFs this way)
-      userContent = [
-        {
-          type: 'text',
-          text: prompt,
-        },
-        {
-          type: 'image_url',
-          image_url: {
-            url: `data:${mimeType};base64,${base64File}`,
-          },
-        },
-      ];
-    } else {
-      // Fallback: use vision-capable model for PDFs
-      userContent = [
-        {
-          type: 'text',
-          text: prompt,
-        },
-        {
-          type: 'image_url',
-          image_url: {
-            url: `data:${mimeType};base64,${base64File}`,
-          },
-        },
-      ];
-    }
-
-    const response = await openai.chat.completions.create({
-      model: isVisionModel ? model : 'gpt-4o', // Default to gpt-4o for PDF support
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a helpful assistant that returns JSON responses only. Analyze the provided resume PDF file and return the analysis in the requested JSON format. Make sure to return valid JSON with both "score" and "suggestions" fields.',
-        },
-        {
-          role: 'user',
-          content: userContent,
-        },
-      ],
-      temperature: 0.3,
-      max_tokens: 4000,
-      response_format: { type: 'json_object' },
-    });
-
-    const content = response.choices[0]?.message?.content || '';
-    const usage = response.usage;
-
-    // Log the response for debugging
-    console.log('OpenAI Response:', content.substring(0, 500));
-
-    return {
-      content,
-      tokens: {
-        input: usage?.prompt_tokens || 0,
-        output: usage?.completion_tokens || 0,
-        total: usage?.total_tokens || 0,
-      },
-    };
-  } catch (error) {
-    if (error instanceof OpenAI.APIError) {
-      throw new Error(`OpenAI API error: ${error.message}`);
-    }
-    throw error;
-  }
-}
-
-async function enhanceWithAnthropicChunks(
-  file: File,
-  base64File: string,
-  mimeType: string,
-  prompt: string,
-  config: LLMConfig
-): Promise<LLMResponse> {
-  const { default: Anthropic } = await import('@anthropic-ai/sdk');
-  const anthropic = new Anthropic({
-    apiKey: config.apiKey,
-  });
-
-  const model = config.model || 'claude-3-5-sonnet-20241022';
-
-  try {
-    // Anthropic supports PDF attachments directly
-    const userContent: any[] = [
-      {
-        type: 'text',
-        text: prompt,
-      },
-      {
-        type: 'image',
-        source: {
-          type: 'base64',
-          media_type: mimeType,
-          data: base64File,
-        },
-      },
-    ];
-
-    const response = await anthropic.messages.create({
-      model,
-      max_tokens: 4000,
-      messages: [
-        {
-          role: 'user',
-          content: userContent,
-        },
-      ],
-    });
-
-    const content = response.content[0]?.type === 'text' ? response.content[0].text : '';
-    const usage = response.usage;
-
-    // Log the response for debugging
-    console.log('Anthropic Response:', content.substring(0, 500));
-
-    return {
-      content,
-      tokens: {
-        input: usage.input_tokens,
-        output: usage.output_tokens,
-        total: usage.input_tokens + usage.output_tokens,
-      },
-    };
-  } catch (error) {
-    if (error instanceof Anthropic.APIError) {
-      throw new Error(`Anthropic API error: ${error.message}`);
-    }
-    throw error;
-  }
-}
-
-async function enhanceWithGeminiChunks(
-  file: File,
-  base64File: string,
-  mimeType: string,
-  prompt: string,
-  config: LLMConfig
-): Promise<LLMResponse> {
-  const { GoogleGenerativeAI } = await import('@google/generative-ai');
-  const genAI = new GoogleGenerativeAI(config.apiKey);
-  const model = config.model || 'gemini-1.5-pro';
-
-  try {
-    const generativeModel = genAI.getGenerativeModel({ 
-      model,
-      generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 4000,
-        responseMimeType: 'application/json',
-      },
-    });
-
-    // Gemini supports PDFs as inline data
-    const parts: any[] = [
-      prompt,
-      {
-        inlineData: {
-          data: base64File,
-          mimeType: mimeType,
-        },
-      },
-    ];
-
-    const result = await generativeModel.generateContent(parts);
-    const response = result.response;
-    const content = response.text();
-
-    const usageMetadata = result.response.usageMetadata;
-    const inputTokens = usageMetadata?.promptTokenCount || 0;
-    const outputTokens = usageMetadata?.candidatesTokenCount || 0;
-
-    // Log the response for debugging
-    console.log('Gemini Response:', content.substring(0, 500));
-
-    return {
-      content,
-      tokens: {
-        input: inputTokens,
-        output: outputTokens,
-        total: inputTokens + outputTokens,
-      },
-    };
-  } catch (error: any) {
-    if (error?.message) {
-      throw new Error(`Gemini API error: ${error.message}`);
-    }
-    throw error;
-  }
-}
-
-async function enhanceWithGrokChunks(
-  file: File,
-  base64File: string,
-  mimeType: string,
-  prompt: string,
-  config: LLMConfig
-): Promise<LLMResponse> {
-  try {
-    const model = config.model || 'grok-beta';
-    
-    // Grok API endpoint
-    const response = await fetch('https://api.x.ai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: prompt,
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: `data:${mimeType};base64,${base64File}`,
-                },
-              },
-            ],
-          },
-        ],
-        max_tokens: 4000,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(
-        errorData.error?.message || `Grok API error: ${response.status} ${response.statusText}`
-      );
-    }
-
-    const data = await response.json();
-    const content = data.choices[0]?.message?.content || '';
-    
-    // Estimate tokens (Grok uses similar tokenization to OpenAI)
-    const inputTokens = Math.ceil((prompt.length + base64File.length * 0.75) / 4);
-    const outputTokens = data.usage?.completion_tokens || Math.ceil(content.length / 4);
-
-    return {
-      content,
-      tokens: {
-        input: data.usage?.prompt_tokens || inputTokens,
-        output: data.usage?.completion_tokens || outputTokens,
-        total: data.usage?.total_tokens || inputTokens + outputTokens,
-      },
-    };
-  } catch (error: any) {
-    if (error?.message) {
-      throw new Error(`Grok API error: ${error.message}`);
-    }
-    throw error;
-  }
+Return ONLY the JSON object. Validate JSON: no trailing commas, escaped quotes, and every suggestion has "type": "add" or "type": "remove".`;
 }
 
 function parseAIResponse(aiResponse: string): { modifications: ModificationChunk[]; score: MatchingScore } {
@@ -466,17 +190,20 @@ function parseAIResponse(aiResponse: string): { modifications: ModificationChunk
       };
     }
     
-    // Parse suggestions
+    // Parse suggestions (support type: "add" | "remove" with reason)
     let modifications: ModificationChunk[] = [];
     if (parsed.suggestions && Array.isArray(parsed.suggestions)) {
       modifications = parsed.suggestions
-        .filter((sug: any) => sug.suggestion) // Only valid suggestions
-        .map((sug: any) => ({
-          original: '', // Not needed for suggestions
-          modified: String(sug.suggestion || '').trim(),
-          reason: sug.reason ? String(sug.reason).trim() : '',
-          section: sug.section ? String(sug.section).trim() : '',
-        }));
+        .filter((sug: any) => sug.suggestion)
+        .map((sug: any) => {
+          const type = String(sug.type || 'add').toLowerCase() === 'remove' ? 'remove' : 'add';
+          const text = String(sug.suggestion || '').trim();
+          const reason = sug.reason ? String(sug.reason).trim() : '';
+          const section = sug.section ? String(sug.section).trim() : '';
+          return type === 'remove'
+            ? { original: text, modified: '', reason, section, suggestionType: 'remove' as const }
+            : { original: '', modified: text, reason, section, suggestionType: 'add' as const };
+        });
     } else {
       console.warn('No suggestions found in AI response. Parsed object keys:', Object.keys(parsed));
     }
@@ -521,6 +248,7 @@ function parseAIResponse(aiResponse: string): { modifications: ModificationChunk
           section: match[1],
           suggestion: match[2],
           reason: match[3],
+          type: 'add',
         }));
         
         if (suggestions.length > 0) {
@@ -539,12 +267,15 @@ function parseAIResponse(aiResponse: string): { modifications: ModificationChunk
           explanation: extracted.score.explanation || 'Extracted from partial response',
         };
         
-        const modifications: ModificationChunk[] = (extracted.suggestions || []).map((sug: any) => ({
-          original: '',
-          modified: String(sug.suggestion || '').trim(),
-          reason: String(sug.reason || '').trim(),
-          section: String(sug.section || '').trim(),
-        }));
+        const modifications: ModificationChunk[] = (extracted.suggestions || []).map((sug: any) => {
+          const type = String(sug.type || 'add').toLowerCase() === 'remove' ? 'remove' : 'add';
+          const text = String(sug.suggestion || '').trim();
+          const reason = String(sug.reason || '').trim();
+          const section = String(sug.section || '').trim();
+          return type === 'remove'
+            ? { original: text, modified: '', reason, section, suggestionType: 'remove' as const }
+            : { original: '', modified: text, reason, section, suggestionType: 'add' as const };
+        });
         
         console.log('Successfully extracted partial data from malformed JSON');
         return { modifications, score };

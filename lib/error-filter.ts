@@ -1,3 +1,5 @@
+import { MAX_FILE_SIZE_LABEL } from '@/lib/constants';
+
 /**
  * Filters and formats error messages to show user-friendly messages
  */
@@ -32,8 +34,8 @@ export function filterErrorMessage(error: unknown): string {
 
   // File errors
   if (errorMessage.includes('file') || errorMessage.includes('File')) {
-    if (errorMessage.includes('size') || errorMessage.includes('5MB')) {
-      return 'File size exceeds 5MB limit. Please upload a smaller file.';
+    if (errorMessage.includes('size') || errorMessage.includes('limit')) {
+      return `File size exceeds ${MAX_FILE_SIZE_LABEL} limit. Please upload a smaller file.`;
     }
     if (errorMessage.includes('type') || errorMessage.includes('format')) {
       return 'Unsupported file type. Please upload a PDF or DOCX file.';
@@ -88,6 +90,9 @@ export function filterErrorMessage(error: unknown): string {
 
   // Job description errors
   if (errorMessage.includes('job description') || errorMessage.includes('Job description')) {
+    if (errorMessage.includes('exceeds') || errorMessage.includes('character limit')) {
+      return 'Job description is too long. Please shorten it to 50,000 characters or less.';
+    }
     return 'Please enter a job description.';
   }
 
