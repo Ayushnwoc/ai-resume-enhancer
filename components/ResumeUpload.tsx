@@ -3,8 +3,12 @@
 import { useCallback, useState } from 'react';
 import { Upload, File, X } from 'lucide-react';
 import { Button } from '@/components/elements/button';
-
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+import {
+  MAX_FILE_SIZE_BYTES,
+  MAX_FILE_SIZE_LABEL,
+  ALLOWED_RESUME_MIME_TYPE,
+  ALLOWED_RESUME_EXTENSION,
+} from '@/lib/constants';
 
 interface ResumeUploadProps {
   onFileSelect: (file: File) => void;
@@ -16,18 +20,15 @@ export function ResumeUpload({ onFileSelect, selectedFile }: ResumeUploadProps) 
   const [error, setError] = useState<string | null>(null);
 
   const validateFile = (file: File): string | null => {
-    // Check file size
-    if (file.size > MAX_FILE_SIZE) {
-      return `File size exceeds 5MB limit. Current size: ${(file.size / 1024 / 1024).toFixed(2)}MB`;
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      return `File size exceeds ${MAX_FILE_SIZE_LABEL} limit. Current size: ${(file.size / 1024 / 1024).toFixed(2)}MB`;
     }
 
-    // Check file type - only PDFs allowed
     const fileName = file.name.toLowerCase();
     const fileType = file.type;
-
     const isValidType =
-      fileType === 'application/pdf' ||
-      fileName.endsWith('.pdf');
+      fileType === ALLOWED_RESUME_MIME_TYPE ||
+      fileName.endsWith(ALLOWED_RESUME_EXTENSION);
 
     if (!isValidType) {
       return 'Only PDF files are supported. Please upload a PDF file.';
@@ -123,7 +124,7 @@ export function ResumeUpload({ onFileSelect, selectedFile }: ResumeUploadProps) 
             Drop your resume here or click to browse
           </p>
           <p className="text-xs text-muted-foreground">
-            PDF files only (max 5MB)
+            PDF files only (max {MAX_FILE_SIZE_LABEL})
           </p>
           <input
             type="file"

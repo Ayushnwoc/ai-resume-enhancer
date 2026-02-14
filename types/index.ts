@@ -50,11 +50,16 @@ export interface LLMResponse {
   tokens: TokenUsage;
 }
 
+/** Suggestion action: what to add to the resume, or what to remove because it doesn't fit the job. */
+export type SuggestionType = 'add' | 'remove';
+
 export interface ModificationChunk {
   original: string;
   modified: string;
   reason?: string;
   section?: string;
+  /** When present, "add" = suggest adding (modified); "remove" = suggest removing (original). */
+  suggestionType?: SuggestionType;
 }
 
 export interface ChunkBasedEnhancement {

@@ -12,6 +12,7 @@ import { HistoryModal } from '@/components/HistoryModal';
 import { Toaster } from '@/components/elements/toaster';
 import { useToast } from '@/components/elements/use-toast';
 import { filterErrorMessage } from '@/lib/error-filter';
+import { MAX_JOB_DESCRIPTION_LENGTH } from '@/lib/constants';
 import { getApiKeys, saveApiKeys, getSavedSettings, saveSettings, getHistory, saveHistory, type HistoryData } from '@/lib/storage';
 import type { LLMProvider, EnhancementResult } from '@/types';
 
@@ -88,6 +89,15 @@ export default function Home() {
       toast({
         title: 'Missing Job Description',
         description: 'Please enter a job description.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (jobDescription.length > MAX_JOB_DESCRIPTION_LENGTH) {
+      toast({
+        title: 'Job description too long',
+        description: `Please shorten to ${MAX_JOB_DESCRIPTION_LENGTH.toLocaleString()} characters or less.`,
         variant: 'destructive',
       });
       return;

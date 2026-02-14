@@ -19,12 +19,9 @@ export function ModificationsList({ modifications }: ModificationsListProps) {
     );
   }
 
-  // Group suggestions by section
   const groupedBySection = modifications.reduce((acc, mod) => {
     const section = mod.section || 'General';
-    if (!acc[section]) {
-      acc[section] = [];
-    }
+    if (!acc[section]) acc[section] = [];
     acc[section].push(mod);
     return acc;
   }, {} as Record<string, ModificationChunk[]>);
@@ -33,7 +30,7 @@ export function ModificationsList({ modifications }: ModificationsListProps) {
     <Card className="p-6">
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">AI Suggestions</h3>
+          <h3 className="text-lg font-semibold">ATS-style suggestions</h3>
           <Badge variant="outline">{modifications.length} suggestion{modifications.length !== 1 ? 's' : ''}</Badge>
         </div>
 
@@ -43,22 +40,41 @@ export function ModificationsList({ modifications }: ModificationsListProps) {
               <Badge variant="secondary" className="text-xs">
                 {section}
               </Badge>
-              <ul className="space-y-2 ml-4">
-                {mods.map((mod, index) => (
-                  <li key={index} className="text-sm">
-                    <div className="flex items-start gap-2">
-                      <span className="text-primary mt-1">•</span>
-                      <div className="flex-1">
-                        <p className="font-medium">{mod.modified}</p>
-                        {mod.reason && (
-                          <p className="text-xs text-muted-foreground mt-1 italic">
-                            {mod.reason}
+              <ul className="space-y-3 ml-4">
+                {mods.map((mod, index) => {
+                  const isRemove = mod.suggestionType === 'remove';
+                  const label = isRemove ? 'Remove' : 'Add';
+                  const content = isRemove ? mod.original : mod.modified;
+                  return (
+                    <li key={index} className="text-sm">
+                      <div className="flex items-start gap-2">
+                        <span className="mt-1 shrink-0">
+                          {isRemove ? (
+                            <span className="text-red-600 dark:text-red-400 font-medium">−</span>
+                          ) : (
+                            <span className="text-emerald-600 dark:text-emerald-400 font-medium">+</span>
+                          )}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium">
+                            <Badge
+                              variant={isRemove ? 'destructive' : 'default'}
+                              className="text-xs font-normal mr-1.5"
+                            >
+                              {label}
+                            </Badge>
+                            {content}
                           </p>
-                        )}
+                          {mod.reason && (
+                            <p className="text-xs text-muted-foreground mt-1 italic">
+                              Why: {mod.reason}
+                            </p>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           ))}

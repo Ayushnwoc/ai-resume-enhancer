@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { enhanceResumeChunks } from '@/lib/chunk-enhancer';
+import {
+  MAX_FILE_SIZE_BYTES,
+  MAX_FILE_SIZE_MB,
+  MAX_JOB_DESCRIPTION_LENGTH,
+  ALLOWED_RESUME_MIME_TYPE,
+  ALLOWED_RESUME_EXTENSION,
+} from '@/lib/constants';
 import type { EnhancementResult } from '@/types';
-
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,6 +33,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (jobDescription.length > MAX_JOB_DESCRIPTION_LENGTH) {
+      return NextResponse.json(
+        {
+          error: `Job description exceeds ${MAX_JOB_DESCRIPTION_LENGTH.toLocaleString()} character limit. Current length: ${jobDescription.length.toLocaleString()}.`,
+        },
+        { status: 400 }
+      );
+    }
+
     if (!apiKey || apiKey.trim().length === 0) {
       return NextResponse.json(
         { error: 'API key is required' },
@@ -43,10 +57,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate file size
-    if (file.size > MAX_FILE_SIZE) {
+    if (file.size > MAX_FILE_SIZE_BYTES) {
       return NextResponse.json(
         {
-          error: `File size exceeds 5MB limit. Current size: ${(file.size / 1024 / 1024).toFixed(2)}MB`,
+          error: `File size exceeds ${MAX_FILE_SIZE_MB}MB limit. Current size: ${(file.size / 1024 / 1024).toFixed(2)}MB`,
         },
         { status: 400 }
       );
@@ -55,7 +69,7 @@ export async function POST(request: NextRequest) {
     // Validate file type - only PDFs allowed
     const fileName = file.name.toLowerCase();
     const fileType = file.type;
-    if (!fileName.endsWith('.pdf') && fileType !== 'application/pdf') {
+    if (!fileName.endsWith(ALLOWED_RESUME_EXTENSION) && fileType !== ALLOWED_RESUME_MIME_TYPE) {
       return NextResponse.json(
         {
           error: 'Only PDF files are supported. Please upload a PDF file.',
@@ -68,7 +82,7 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     const base64File = buffer.toString('base64');
-    const mimeType = 'application/pdf';
+    const mimeType = ALLOWED_RESUME_MIME_TYPE;
 
     // Use chunk-based enhancement - send file directly to AI
     let enhancementResult;

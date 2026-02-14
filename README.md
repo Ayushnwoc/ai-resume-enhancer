@@ -8,7 +8,7 @@
 
 ## ✨ Features
 
-- **📄 File Upload**: Upload PDF resumes (max 5MB)
+- **📄 File Upload**: Upload PDF resumes (max 5MB; see [Limits](#-limits))
 - **🎯 Job Description Matching**: Paste job descriptions to enhance resume alignment
 - **🤖 Multiple LLM Providers**: Support for OpenAI, Anthropic (Claude), Google Gemini, and Grok (xAI)
 - **📊 Matching Score**: Get a 0-100 score showing how well your resume matches the job description
@@ -100,11 +100,11 @@ npm start
 ## 📖 Usage
 
 1. **Upload Your Resume**
-   - Click the upload area or drag and drop a PDF file (max 5MB)
+   - Click the upload area or drag and drop a PDF file (max 5MB; see [Limits](#-limits))
    - Only PDF files are currently supported
 
 2. **Enter Job Description**
-   - Paste the job description you want to match your resume against
+   - Paste the job description you want to match your resume against (max 50,000 characters)
 
 3. **Configure API Settings**
    - Click the Settings icon (⚙️) in the header
@@ -198,13 +198,24 @@ ai-resume-enhancer/
 - **No Backend Database**: All processing happens in-memory
 - **Client-Side Processing**: File processing and API calls happen server-side, but no data is persisted
 
+## 📏 Limits
+
+Application limits are defined in `lib/constants.ts` (single source of truth):
+
+| Limit | Value | Description |
+|-------|--------|-------------|
+| **Resume file size** | 5MB | Maximum size for uploaded PDF resume. |
+| **Job description length** | 50,000 characters | Maximum length for the pasted job description. |
+
+These limits are enforced in the API and in the UI (e.g. job description field shows character count and caps at 50k).
+
 ## ⚠️ Important Notes
 
 - The tool **does not add fake information** - it only enhances existing content
 - Original resume structure and formatting are preserved
 - All processing happens server-side via API routes
 - No data is persisted - everything is processed in-memory
-- Maximum file size: **5MB**
+- See [Limits](#-limits) for file size and job description length
 - Supported formats: **PDF only**
 
 ## 🐛 Troubleshooting
@@ -218,7 +229,7 @@ ai-resume-enhancer/
 - **Solution**: Check your API key and ensure it's correct for the selected provider
 
 **Issue**: File upload not working
-- **Solution**: Ensure the file is a PDF and under 5MB
+- **Solution**: Ensure the file is a PDF and under the size limit (see [Limits](#-limits))
 
 **Issue**: Build errors
 - **Solution**: Ensure you're using Node.js 20.16.0+ and run `npm install` again
